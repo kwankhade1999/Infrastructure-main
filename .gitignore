@@ -1,5 +1,25 @@
+# Terraform
 *.tfstate
 *.tfstate.*
 .terraform/
+
+# Terraform plans
+*.tfplan
+
+# Keys
 *.pem
-.terraform.lock.hcl
+*.key
+
+# Local overrides
+*.tfvars
+!terraform.tfvars.example
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+
+# Windows metadata
+*:Zone.Identifier
