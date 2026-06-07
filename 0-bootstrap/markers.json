@@ -1,0 +1,12 @@
+{
+    "Objects": [
+        {
+            "Key": "quantamvector/1-network/terraform.tfstate",
+            "VersionId": "null"
+        },
+        {
+            "Key": "quantamvector/2-eks/terraform.tfstate",
+            "VersionId": "null"
+        }
+    ]
+}
