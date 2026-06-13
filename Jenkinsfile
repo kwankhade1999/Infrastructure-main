@@ -27,6 +27,14 @@ pipeline {
                 }
             }
         }
+        stage('AWS Debug') {
+             steps {
+                 sh '''
+                echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
+                aws sts get-caller-identity
+                '''
+            }
+        }
 
         // ─── APPLY STAGES ─────────────────────────────────────────────────────
 
