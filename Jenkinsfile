@@ -11,7 +11,7 @@ pipeline {
     environment {
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
-        AWS_DEFAULT_REGION    = 'ap-northeast-1'
+        AWS_DEFAULT_REGION    = 'ap-south-1'
     }
 
     agent any
@@ -22,9 +22,17 @@ pipeline {
             steps {
                 script {
                     dir('terraform') {
-                        git url: 'https://github.com/QuntamVector/Infrastructure.git', branch: 'main'
+                        git url: 'https://github.com/kwankhade1999/Infrastructure-main.git', branch: 'main'
                     }
                 }
+            }
+        }
+        stage('AWS Debug') {
+             steps {
+                 sh '''
+                echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
+                aws sts get-caller-identity
+                '''
             }
         }
 
@@ -92,10 +100,16 @@ pipeline {
             when { expression { params.terraformAction == 'apply' } }
             steps {
                 sh 'cd terraform/2-eks && terraform init -input=false'
+
+                sh 'cd terraform/2-eks && terraform import \'module.eks.module.kms.aws_kms_alias.this["cluster"]\' alias/eks/quantamvector || true'
+                sh 'cd terraform/2-eks && terraform import \'module.eks.aws_eks_cluster.this[0]\' quantamvector || true'
+
                 sh 'cd terraform/2-eks && terraform plan -out tfplan'
                 sh 'cd terraform/2-eks && terraform show -no-color tfplan > tfplan.txt'
             }
         }
+
+        
 
         stage('Approval: 2-eks') {
             when { expression { params.terraformAction == 'apply' } }

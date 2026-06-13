@@ -1,5 +1,8 @@
+//8 june
+//8 june 2
 resource "aws_s3_bucket" "tf_state" {
   bucket = "quantamvector-infra-statefile-backup-kunal-2026"
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_versioning" "tf_state" {
