@@ -100,14 +100,16 @@ pipeline {
             when { expression { params.terraformAction == 'apply' } }
             steps {
                 sh 'cd terraform/2-eks && terraform init -input=false'
-                
-                // Import existing resources to avoid AlreadyExists errors on re-runs
-                   sh 'cd terraform/2-eks && terraform import \'module.eks.module.kms.aws_kms_alias.this["cluster"]\' alias/eks/quantamvector || true'
-                      sh 'cd terraform/2-eks && terraform import \'module.eks.aws_eks_cluster.this[0]\' quantamvector || true'
+
+                sh 'cd terraform/2-eks && terraform import \'module.eks.module.kms.aws_kms_alias.this["cluster"]\' alias/eks/quantamvector || true'
+                sh 'cd terraform/2-eks && terraform import \'module.eks.aws_eks_cluster.this[0]\' quantamvector || true'
+
                 sh 'cd terraform/2-eks && terraform plan -out tfplan'
                 sh 'cd terraform/2-eks && terraform show -no-color tfplan > tfplan.txt'
             }
         }
+
+        
 
         stage('Approval: 2-eks') {
             when { expression { params.terraformAction == 'apply' } }
