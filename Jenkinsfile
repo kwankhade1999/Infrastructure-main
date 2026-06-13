@@ -12,6 +12,7 @@ pipeline {
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
         AWS_DEFAULT_REGION    = 'ap-south-1'
+        TF_STATE_BUCKET       = 'quantamvector-infra-statefile-backup-kunal-2026'
     }
 
     agent any
@@ -27,11 +28,12 @@ pipeline {
                 }
             }
         }
+
         stage('AWS Debug') {
-             steps {
-                 sh '''
-                echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
-                aws sts get-caller-identity
+            steps {
+                sh '''
+                    echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
+                    aws sts get-caller-identity
                 '''
             }
         }
@@ -42,10 +44,11 @@ pipeline {
             when { expression { params.terraformAction == 'apply' } }
             steps {
                 sh 'cd terraform/0-bootstrap && terraform init -input=false'
-                // Import existing resources into state if they already exist in AWS
-                // '|| true' ensures pipeline does not fail if resource does not exist yet (first run)
-                sh 'cd terraform/0-bootstrap && terraform import aws_s3_bucket.tf_state quantamvector-infra-statefile-backup || true'
+
+                // FIX: corrected bucket name to include -kunal-2026 suffix
+                sh 'cd terraform/0-bootstrap && terraform import aws_s3_bucket.tf_state quantamvector-infra-statefile-backup-kunal-2026 || true'
                 sh 'cd terraform/0-bootstrap && terraform import aws_dynamodb_table.tf_lock quantamvector-terraform-locks || true'
+
                 sh 'cd terraform/0-bootstrap && terraform plan -out tfplan'
                 sh 'cd terraform/0-bootstrap && terraform show -no-color tfplan > tfplan.txt'
             }
@@ -101,6 +104,7 @@ pipeline {
             steps {
                 sh 'cd terraform/2-eks && terraform init -input=false'
 
+                // Import existing resources BEFORE planning to avoid AlreadyExists errors
                 sh 'cd terraform/2-eks && terraform import \'module.eks.module.kms.aws_kms_alias.this["cluster"]\' alias/eks/quantamvector || true'
                 sh 'cd terraform/2-eks && terraform import \'module.eks.aws_eks_cluster.this[0]\' quantamvector || true'
 
@@ -108,8 +112,6 @@ pipeline {
                 sh 'cd terraform/2-eks && terraform show -no-color tfplan > tfplan.txt'
             }
         }
-
-        
 
         stage('Approval: 2-eks') {
             when { expression { params.terraformAction == 'apply' } }
@@ -135,7 +137,8 @@ pipeline {
             when { expression { params.terraformAction == 'destroy' } }
             steps {
                 sh 'cd terraform/2-eks && terraform init -input=false'
-                sh 'cd terraform/2-eks && terraform destroy -auto-approve'
+                // FIX: added -lock=false in case DynamoDB lock table is unavailable
+                sh 'cd terraform/2-eks && terraform destroy -auto-approve -lock=false'
             }
         }
 
@@ -143,7 +146,8 @@ pipeline {
             when { expression { params.terraformAction == 'destroy' } }
             steps {
                 sh 'cd terraform/1-network && terraform init -input=false'
-                sh 'cd terraform/1-network && terraform destroy -auto-approve'
+                // FIX: added -lock=false in case DynamoDB lock table is unavailable
+                sh 'cd terraform/1-network && terraform destroy -auto-approve -lock=false'
             }
         }
 
@@ -151,7 +155,38 @@ pipeline {
             when { expression { params.terraformAction == 'destroy' } }
             steps {
                 sh 'cd terraform/0-bootstrap && terraform init -input=false'
-                sh 'cd terraform/0-bootstrap && terraform destroy -auto-approve'
+
+                // FIX: empty S3 bucket before destroying (AWS blocks deletion of non-empty buckets)
+                // Step 1: delete all object versions
+                sh '''
+                    VERSIONS=$(aws s3api list-object-versions \
+                        --bucket ${TF_STATE_BUCKET} \
+                        --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' \
+                        --output json 2>/dev/null)
+                    if [ "$VERSIONS" != "null" ] && [ -n "$VERSIONS" ] && [ "$(echo $VERSIONS | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get(\'Objects\') or []))")" -gt "0" ]; then
+                        aws s3api delete-objects --bucket ${TF_STATE_BUCKET} --delete "$VERSIONS" --region ap-south-1
+                        echo "Deleted object versions."
+                    else
+                        echo "No object versions to delete."
+                    fi
+                '''
+
+                // Step 2: delete all delete markers
+                sh '''
+                    MARKERS=$(aws s3api list-object-versions \
+                        --bucket ${TF_STATE_BUCKET} \
+                        --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' \
+                        --output json 2>/dev/null)
+                    if [ "$MARKERS" != "null" ] && [ -n "$MARKERS" ] && [ "$(echo $MARKERS | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get(\'Objects\') or []))")" -gt "0" ]; then
+                        aws s3api delete-objects --bucket ${TF_STATE_BUCKET} --delete "$MARKERS" --region ap-south-1
+                        echo "Deleted delete markers."
+                    else
+                        echo "No delete markers to delete."
+                    fi
+                '''
+
+                // Step 3: now destroy bootstrap resources
+                sh 'cd terraform/0-bootstrap && terraform destroy -auto-approve -lock=false'
             }
         }
 
@@ -159,7 +194,7 @@ pipeline {
 
     post {
         success {
-            echo "terraform ${params.terraformAction} completed successfully."
+            echo "Terraform ${params.terraformAction} completed successfully."
         }
         failure {
             echo "Pipeline failed. Check the stage logs above."
