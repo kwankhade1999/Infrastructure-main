@@ -29,7 +29,7 @@ module "eks" {
       name           = "${var.project}-ng"
       instance_types = ["t3.micro"]
       min_size       = 3
-      max_size       = 5
+      max_size       = 8
       desired_size   = 3
 
       subnet_ids = local.private_subnet_ids
