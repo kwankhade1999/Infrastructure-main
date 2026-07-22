@@ -27,7 +27,7 @@ module "eks" {
   eks_managed_node_groups = {
     default = {
       name           = "${var.project}-ng"
-      instance_types = ["t3.micro"]
+      instance_types = ["m7i-flex.large"]
       min_size       = 3
       max_size       = 8
       desired_size   = 3
